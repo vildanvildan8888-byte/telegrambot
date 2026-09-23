@@ -1,4 +1,5 @@
 import { Telegraf, session } from 'telegraf';
+import { ensureSession, getSessionKey } from './session.js';
 import { config } from '../config.js';
 import { upsertTelegramUser } from '../repositories/users.js';
 import { MAIN_MENU } from './keyboards.js';
@@ -12,7 +13,11 @@ import { registerHelpHandlers } from './handlers/help.js';
 
 export function createBot(token = config.botToken) {
   const bot = new Telegraf(token);
-  bot.use(session());
+  bot.use(session({ getSessionKey }));
+  bot.use((ctx, next) => {
+    ensureSession(ctx);
+    return next();
+  });
   bot.use(async (ctx, next) => {
     if (ctx.from) ctx.state.user = await upsertTelegramUser(ctx.from);
     return next();
