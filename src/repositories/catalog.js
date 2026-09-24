@@ -12,10 +12,11 @@ export async function listCategories(restaurantId, database = pool) {
 
 export async function listProducts(restaurantId, categoryId, database = pool) {
   const result = await database.query(
-    `SELECT id, name, description, price, photo_url
-     FROM products
-     WHERE restaurant_id = $1 AND category_id = $2 AND is_available = TRUE
-     ORDER BY name`,
+    `SELECT p.id, p.name, p.description, p.price, p.photo_url, c.name AS category_name
+     FROM products p
+     JOIN categories c ON c.id = p.category_id
+     WHERE p.restaurant_id = $1 AND p.category_id = $2 AND p.is_available = TRUE
+     ORDER BY p.name`,
     [restaurantId, categoryId],
   );
   return result.rows;
@@ -23,7 +24,7 @@ export async function listProducts(restaurantId, categoryId, database = pool) {
 
 export async function getProduct(restaurantId, productId, database = pool) {
   const result = await database.query(
-    `SELECT id, name, description, price, photo_url
+    `SELECT id, category_id, name, description, price, photo_url
      FROM products
      WHERE restaurant_id = $1 AND id = $2 AND is_available = TRUE`,
     [restaurantId, productId],

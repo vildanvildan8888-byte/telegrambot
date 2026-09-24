@@ -15,7 +15,24 @@ export function categoriesKeyboard(categories) {
   ]);
 }
 
-export function productKeyboard(productId, quantity = 1) {
+export function categoryScreenKeyboard() {
+  return Markup.inlineKeyboard([[
+    Markup.button.callback('📂 К категориям', 'menu:show'),
+    Markup.button.callback('🛒 Корзина', 'cart:show'),
+  ]]);
+}
+
+export function productListKeyboard(categoryId, products) {
+  return Markup.inlineKeyboard([
+    ...products.map((product) => [
+      Markup.button.callback(`🍽 ${product.name}`, `product:view:${categoryId}:${product.id}`),
+    ]),
+    [Markup.button.callback('⬅️ Назад к категориям', 'menu:show')],
+    [Markup.button.callback('🛒 Корзина', 'cart:show')],
+  ]);
+}
+
+export function productKeyboard(productId, quantity = 1, categoryId) {
   return Markup.inlineKeyboard([
     [
       Markup.button.callback('➖', `product:quantity:${productId}:-1`),
@@ -23,7 +40,7 @@ export function productKeyboard(productId, quantity = 1) {
       Markup.button.callback('➕', `product:quantity:${productId}:1`),
     ],
     [Markup.button.callback('🛒 Добавить в корзину', `cart:add:${productId}:${quantity}`)],
-    [Markup.button.callback('🛒 Открыть корзину', 'cart:show')],
+    [Markup.button.callback('⬅️ Назад к категории', `category:${categoryId}`)],
   ]);
 }
 

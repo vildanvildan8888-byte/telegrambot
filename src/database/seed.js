@@ -2,20 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../config.js';
 import { pool } from './pool.js';
-
-const categories = [
-  { slug: 'burgers', name: '🍔 Бургеры', sort: 1 },
-  { slug: 'snacks', name: '🍟 Закуски', sort: 2 },
-  { slug: 'drinks', name: '🥤 Напитки', sort: 3 },
-];
-
-const products = [
-  { category: 'burgers', slug: 'classic-burger', name: 'Классический бургер', description: 'Говяжья котлета, салат, сыр и фирменный соус.', price: 35000 },
-  { category: 'burgers', slug: 'chicken-burger', name: 'Чикен бургер', description: 'Хрустящая курица, свежие овощи и соус.', price: 32000 },
-  { category: 'snacks', slug: 'fries', name: 'Картофель фри', description: 'Золотистый картофель с солью.', price: 15000 },
-  { category: 'snacks', slug: 'nuggets', name: 'Куриные наггетсы', description: 'Куриные наггетсы, 6 штук.', price: 22000 },
-  { category: 'drinks', slug: 'cola', name: 'Кола 0,5 л', description: 'Охлаждённый газированный напиток.', price: 10000 },
-];
+import { DEMO_CATEGORIES, DEMO_PRODUCTS } from './demo-menu.js';
 
 export async function seed(database = pool) {
   await database.query(
@@ -24,7 +11,7 @@ export async function seed(database = pool) {
     [config.restaurantId, 'Вкусный двор'],
   );
 
-  for (const category of categories) {
+  for (const category of DEMO_CATEGORIES) {
     await database.query(
       `INSERT INTO categories(restaurant_id, slug, name, sort_order)
        VALUES ($1, $2, $3, $4)
@@ -33,7 +20,7 @@ export async function seed(database = pool) {
     );
   }
 
-  for (const product of products) {
+  for (const product of DEMO_PRODUCTS) {
     await database.query(
       `INSERT INTO products(restaurant_id, category_id, slug, name, description, price)
        SELECT $1, c.id, $3, $4, $5, $6 FROM categories c

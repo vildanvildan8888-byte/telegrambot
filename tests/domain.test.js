@@ -5,6 +5,7 @@ import { canTransition, nextStatuses, ORDER_STATUSES } from '../src/domain/order
 import { PAYMENT_METHODS, validateCheckoutField } from '../src/domain/checkout.js';
 import { calculateCartTotal } from '../src/domain/cart.js';
 import { productCardText } from '../src/bot/messages.js';
+import { DEMO_CATEGORIES, DEMO_PRODUCTS } from '../src/database/demo-menu.js';
 
 test('форматирует суммы и номера заказов', () => {
   assert.equal(formatMoney(87000), '87 000 сум');
@@ -45,4 +46,14 @@ test('карточка товара показывает выбранное ко
   assert.match(text, /Цена: 35 000 сум/);
   assert.match(text, /Количество: 2/);
   assert.match(text, /Итого: 70 000 сум/);
+});
+
+test('демо-меню содержит по шесть товаров в каждой существующей категории', () => {
+  for (const category of DEMO_CATEGORIES) {
+    assert.equal(DEMO_PRODUCTS.filter((product) => product.category === category.slug).length, 6);
+  }
+  assert.equal(new Set(DEMO_PRODUCTS.map((product) => product.slug)).size, DEMO_PRODUCTS.length);
+  assert.ok(DEMO_PRODUCTS.every((product) =>
+    DEMO_CATEGORIES.some((category) => category.slug === product.category)
+      && product.name && product.description && product.price > 0));
 });
