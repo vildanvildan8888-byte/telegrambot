@@ -11,12 +11,20 @@ export function largestTelegramPhotoFileId(photoSizes = []) {
   }, null)?.file_id ?? null;
 }
 
-export async function showProductPhoto(ctx, product) {
+export function editProductCard(ctx, caption, keyboard) {
+  if (ctx.callbackQuery?.message?.photo?.length) {
+    return ctx.editMessageCaption(caption, keyboard);
+  }
+  return ctx.editMessageText(caption, keyboard);
+}
+
+export async function showProductPhoto(ctx, product, caption, keyboard) {
   if (!product.photo_url) return false;
 
   try {
     const message = await ctx.replyWithPhoto(product.photo_url, {
-      caption: `📷 ${product.name}`,
+      caption,
+      ...keyboard,
     });
     ctx.session.productPhotoMessage = {
       chatId: message.chat.id,
@@ -31,14 +39,21 @@ export async function showProductPhoto(ctx, product) {
 }
 
 export async function clearProductPhoto(ctx) {
-  const photoMessage = ctx.session.productPhotoMessage;
+  const currentMessage = ctx.callbackQuery?.message;
+  const photoMessage = ctx.session.productPhotoMessage ?? (
+    currentMessage?.photo?.length
+      ? { chatId: currentMessage.chat.id, messageId: currentMessage.message_id }
+      : null
+  );
   ctx.session.productPhotoMessage = null;
   if (!photoMessage) return false;
 
   try {
     await ctx.telegram.deleteMessage(photoMessage.chatId, photoMessage.messageId);
+    return true;
   } catch (error) {
+    ctx.session.productPhotoMessage = photoMessage;
     console.warn(`Не удалось удалить фото карточки: ${error.message}`);
+    return false;
   }
-  return true;
 }

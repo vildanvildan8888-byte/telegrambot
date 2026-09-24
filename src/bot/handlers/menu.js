@@ -3,18 +3,17 @@ import { getRestaurantCategories, getCategoryProducts, getAvailableProduct } fro
 import { categoriesKeyboard, categoryScreenKeyboard, MAIN_MENU, productKeyboard, productListKeyboard } from '../keyboards.js';
 import { productCardText } from '../messages.js';
 import { changeSelectedProductQuantity, selectedProductQuantity } from '../product-quantity.js';
-import { clearProductPhoto, showProductPhoto } from '../product-photo.js';
+import { clearProductPhoto, editProductCard, showProductPhoto } from '../product-photo.js';
 
 async function updateProductCard(ctx, product) {
   const quantity = selectedProductQuantity(ctx.session, product.id);
   const text = productCardText(product, quantity);
   const keyboard = productKeyboard(product.id, quantity, product.category_id);
-  const message = ctx.callbackQuery?.message;
-  if (message?.photo?.length) return ctx.editMessageCaption(text, keyboard);
-  return ctx.editMessageText(text, keyboard);
+  return editProductCard(ctx, text, keyboard);
 }
 
 export async function showMenu(ctx) {
+  await clearProductPhoto(ctx);
   const categories = await getRestaurantCategories(config.restaurantId);
   if (!categories.length) {
     return ctx.reply('Меню пока пустое. Попробуйте позже.', MAIN_MENU);
@@ -26,32 +25,35 @@ export function registerMenuHandlers(bot) {
   bot.hears('🍔 Меню', showMenu);
   bot.action('menu:show', async (ctx) => {
     await ctx.answerCbQuery();
+    const message = ctx.callbackQuery?.message;
+    const wasPhoto = Boolean(message?.photo?.length);
     await clearProductPhoto(ctx);
     const categories = await getRestaurantCategories(config.restaurantId);
     if (!categories.length) {
+      if (wasPhoto) return ctx.reply('Меню пока пустое. Попробуйте позже.', categoryScreenKeyboard());
       return ctx.editMessageText('Меню пока пустое. Попробуйте позже.', categoryScreenKeyboard());
     }
-    const message = ctx.callbackQuery?.message;
     const keyboard = categoriesKeyboard(categories);
-    if (message?.photo?.length) {
-      return ctx.editMessageCaption('🍔 Выберите категорию:', keyboard);
-    }
+    if (wasPhoto) return ctx.reply('🍔 Выберите категорию:', keyboard);
     return ctx.editMessageText('🍔 Выберите категорию:', keyboard);
   });
   bot.action(/^category:(\d+)$/, async (ctx) => {
     await ctx.answerCbQuery();
+    const message = ctx.callbackQuery?.message;
+    const wasPhoto = Boolean(message?.photo?.length);
     await clearProductPhoto(ctx);
     const categoryId = ctx.match[1];
     const products = await getCategoryProducts(config.restaurantId, categoryId);
     if (!products.length) {
+      if (wasPhoto) return ctx.reply('В этой категории пока нет доступных блюд.', categoryScreenKeyboard());
       return ctx.editMessageText('В этой категории пока нет доступных блюд.', categoryScreenKeyboard());
     }
 
     ctx.session.menuCategoryId = Number(categoryId);
-    await ctx.editMessageText(
-      `${products[0].category_name}\n\nВыберите блюдо:`,
-      productListKeyboard(categoryId, products),
-    );
+    const text = `${products[0].category_name}\n\nВыберите блюдо:`;
+    const keyboard = productListKeyboard(categoryId, products);
+    if (wasPhoto) return ctx.reply(text, keyboard);
+    return ctx.editMessageText(text, keyboard);
   });
   bot.action(/^product:view:(\d+):(\d+)$/, async (ctx) => {
     const [, categoryId, productId] = ctx.match;
@@ -63,8 +65,20 @@ export function registerMenuHandlers(bot) {
     ctx.session.menuCategoryId = Number(categoryId);
     await ctx.answerCbQuery();
     await clearProductPhoto(ctx);
-    await updateProductCard(ctx, product);
-    await showProductPhoto(ctx, product);
+    const quantity = selectedProductQuantity(ctx.session, product.id);
+    const text = productCardText(product, quantity);
+    const keyboard = productKeyboard(product.id, quantity, product.category_id);
+    const photoShown = await showProductPhoto(ctx, product, text, keyboard);
+    if (!photoShown) return updateProductCard(ctx, product);
+
+    const sourceMessage = ctx.callbackQuery?.message;
+    if (sourceMessage) {
+      try {
+        await ctx.telegram.deleteMessage(sourceMessage.chat.id, sourceMessage.message_id);
+      } catch (error) {
+        console.warn(`Не удалось удалить список товаров после открытия карточки: ${error.message}`);
+      }
+    }
   });
   bot.action(/^product:quantity:(\d+):(-1|1)$/, async (ctx) => {
     const product = await getAvailableProduct(config.restaurantId, ctx.match[1]);

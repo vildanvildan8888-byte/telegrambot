@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ensureSession, getSessionKey } from '../src/bot/session.js';
 import { changeSelectedProductQuantity, selectedProductQuantity } from '../src/bot/product-quantity.js';
-import { clearProductPhoto, showProductPhoto } from '../src/bot/product-photo.js';
+import { clearProductPhoto, editProductCard, showProductPhoto } from '../src/bot/product-photo.js';
 
 test('session keys cover private, group, inline, and senderless chat updates', () => {
   assert.equal(getSessionKey({ from: { id: 7 }, chat: { id: 7 } }), '7:7');
@@ -74,6 +74,8 @@ test('product photos are optional and failed uploads fall back without interrupt
 
 test('a successful product photo is recorded in the active session for cleanup', async () => {
   const sent = [];
+  const keyboard = { reply_markup: { inline_keyboard: [[{ text: '➕', callback_data: 'product:quantity:2:1' }]] } };
+  const caption = '🍽 Чизбургер\n\nГовядина и сыр\n\nЦена: 35 000 сум\n\nКоличество: 2\n\nИтого: 70 000 сум';
   const ctx = {
     session: {},
     replyWithPhoto: async (...args) => {
@@ -86,12 +88,26 @@ test('a successful product photo is recorded in the active session for cleanup',
     id: 2,
     name: 'Чизбургер',
     photo_url: 'telegram-file-id',
-  }), true);
+  }, caption, keyboard), true);
   assert.deepEqual(sent, [[
     'telegram-file-id',
-    { caption: '📷 Чизбургер' },
+    { caption, ...keyboard },
   ]]);
   assert.deepEqual(ctx.session.productPhotoMessage, { chatId: 7, messageId: 88 });
+});
+
+test('quantity refresh edits the caption of an existing photo card without sending another message', async () => {
+  const calls = [];
+  const keyboard = { reply_markup: { inline_keyboard: [] } };
+  const ctx = {
+    callbackQuery: { message: { photo: [{ file_id: 'still-the-same-photo' }] } },
+    editMessageCaption: async (...args) => calls.push(['caption', ...args]),
+    editMessageText: async (...args) => calls.push(['text', ...args]),
+    replyWithPhoto: async (...args) => calls.push(['photo', ...args]),
+  };
+
+  await editProductCard(ctx, 'Количество: 3\nИтого: 105 000 сум', keyboard);
+  assert.deepEqual(calls, [['caption', 'Количество: 3\nИтого: 105 000 сум', keyboard]]);
 });
 
 test('the photo associated with a product card is deleted when leaving the card', async () => {
