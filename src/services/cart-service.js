@@ -1,4 +1,4 @@
-import { addQuantity, changeQuantity, getCart, removeCartItem } from '../repositories/cart.js';
+import { addQuantity, changeQuantity, getCart, removeCartItem, setQuantity } from '../repositories/cart.js';
 
 export function loadCart(userId, restaurantId) {
   return getCart(userId, restaurantId);
@@ -13,6 +13,10 @@ export function adjustCartItem(userId, restaurantId, productId, delta) {
 
 export function addCartItem(userId, restaurantId, productId, quantity) {
   return addQuantity(userId, restaurantId, productId, quantity);
+}
+
+export function setCartItemQuantity(userId, restaurantId, productId, quantity) {
+  return setQuantity(userId, restaurantId, productId, quantity);
 }
 
 export function deleteCartItem(userId, restaurantId, productId) {

@@ -104,12 +104,12 @@ export function createHttpServer({ webhookHandler, webhookSecret, miniAppHandler
         sendJson(response, 404, { error: 'Not found' });
         return;
       }
-      if (request.method !== 'GET' && request.method !== 'POST') {
-        response.setHeader('allow', 'GET, POST');
+      if (!['GET', 'POST', 'PUT', 'DELETE'].includes(request.method)) {
+        response.setHeader('allow', 'GET, POST, PUT, DELETE');
         sendJson(response, 405, { error: 'Method not allowed' });
         return;
       }
-      if (request.method === 'POST') {
+      if (request.method === 'POST' || request.method === 'PUT') {
         const contentType = request.headers['content-type']?.split(';', 1)[0].trim().toLowerCase();
         if (contentType !== 'application/json') {
           request.resume();

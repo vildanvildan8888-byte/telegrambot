@@ -28,12 +28,30 @@ function safeUser(user) {
 }
 
 function productView(product) {
-  return {
+  const view = {
     id: String(product.id),
     categoryId: String(product.category_id),
     name: product.name,
     description: product.description,
     price: Number(product.price),
+  };
+  if (product.photo_url) view.photoUrl = `/api/v1/products/${encodeURIComponent(view.id)}/photo`;
+  return view;
+}
+
+function cartView(cart) {
+  return {
+    items: cart.items.map((item) => ({
+      productId: String(item.product_id),
+      name: item.name,
+      price: Number(item.price),
+      quantity: Number(item.quantity),
+      lineTotal: Number(item.line_total),
+      photoUrl: item.photo_url
+        ? `/api/v1/products/${encodeURIComponent(String(item.product_id))}/photo`
+        : null,
+    })),
+    total: Number(cart.total),
   };
 }
 
@@ -53,8 +71,13 @@ export function createMiniAppApi({
   listCategories,
   listProducts,
   getProduct,
+  getCart,
+  setCartQuantity,
+  deleteCartItem,
+  getTelegramPhoto,
 }) {
-  const required = [upsertUser, findUserByTelegramId, listCategories, listProducts, getProduct];
+  const required = [upsertUser, findUserByTelegramId, listCategories, listProducts, getProduct,
+    getCart, setCartQuantity, deleteCartItem, getTelegramPhoto];
   if (required.some((dependency) => typeof dependency !== 'function')) {
     throw new TypeError('Mini App API repository functions are required.');
   }
@@ -95,8 +118,8 @@ export function createMiniAppApi({
       json(response, 404, { error: 'Not found' });
       return;
     }
-    if (method !== 'GET') {
-      response.setHeader('allow', 'GET, POST');
+    if (!['GET', 'POST', 'PUT', 'DELETE'].includes(method)) {
+      response.setHeader('allow', 'GET, POST, PUT, DELETE');
       json(response, 405, { error: 'Method not allowed' });
       return;
     }
@@ -112,6 +135,46 @@ export function createMiniAppApi({
       const user = await findUserByTelegramId(telegramId);
       if (!user) {
         json(response, 401, { error: 'Пользователь не найден. Откройте Mini App заново.' });
+        return;
+      }
+
+      if ((method === 'PUT' || method === 'DELETE') && request.headers.origin !== origin) {
+        json(response, 403, { error: 'Запрос пришёл с недоверенного источника.' });
+        return;
+      }
+
+      const cartPath = pathname.match(/^\/api\/v1\/cart(?:\/items\/(\d+))?$/);
+      if (pathname === '/api/v1/cart' && method === 'GET') {
+        json(response, 200, { cart: cartView(await getCart(user.id, restaurantId)) });
+        return;
+      }
+      if (cartPath?.[1] && method === 'PUT') {
+        const productId = parsePositiveId(cartPath[1]);
+        const quantity = request.body?.quantity;
+        if (!productId) {
+          json(response, 400, { error: 'Укажите корректный товар.' });
+          return;
+        }
+        if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) {
+          json(response, 400, { error: 'Количество должно быть от 1 до 99.' });
+          return;
+        }
+        const updated = await setCartQuantity(user.id, restaurantId, productId, quantity);
+        if (!updated) {
+          json(response, 404, { error: 'Товар не найден или больше недоступен.' });
+          return;
+        }
+        json(response, 200, { cart: cartView(await getCart(user.id, restaurantId)) });
+        return;
+      }
+      if (cartPath?.[1] && method === 'DELETE') {
+        const productId = parsePositiveId(cartPath[1]);
+        const removed = productId && await deleteCartItem(user.id, restaurantId, productId);
+        if (!removed) {
+          json(response, 404, { error: 'Позиция не найдена в корзине.' });
+          return;
+        }
+        json(response, 200, { cart: cartView(await getCart(user.id, restaurantId)) });
         return;
       }
 
@@ -142,6 +205,29 @@ export function createMiniAppApi({
       }
 
       const productMatch = pathname.match(/^\/api\/v1\/products\/(\d+)$/);
+      const productPhotoMatch = pathname.match(/^\/api\/v1\/products\/(\d+)\/photo$/);
+      if (method === 'GET' && productPhotoMatch) {
+        const productId = parsePositiveId(productPhotoMatch[1]);
+        const product = productId ? await getProduct(restaurantId, productId) : null;
+        if (!product?.photo_url) {
+          json(response, 404, { error: 'У этого товара пока нет фотографии.' });
+          return;
+        }
+        try {
+          const photo = await getTelegramPhoto(product.photo_url);
+          response.writeHead(200, {
+            'content-type': photo.contentType,
+            'content-length': photo.buffer.length,
+            'cache-control': 'private, max-age=300',
+            'x-content-type-options': 'nosniff',
+          });
+          response.end(photo.buffer);
+        } catch {
+          console.warn('Не удалось получить фотографию товара из Telegram.');
+          json(response, 502, { error: 'Фотография временно недоступна.' });
+        }
+        return;
+      }
       if (method === 'GET' && productMatch) {
         const productId = parsePositiveId(productMatch[1]);
         const product = productId ? await getProduct(restaurantId, productId) : null;

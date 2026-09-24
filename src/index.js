@@ -6,6 +6,8 @@ import { createBot } from './bot/index.js';
 import { createHttpServer } from './http-server.js';
 import { buildWebhookUrl, resolveWebhookSecret } from './webhook.js';
 import { createMiniAppApi } from './mini-app/api.js';
+import { downloadTelegramProductPhoto } from './mini-app/telegram-photo.js';
+import { deleteCartItem, loadCart, setCartItemQuantity } from './services/cart-service.js';
 import {
   findTelegramUserById,
   upsertTelegramUser,
@@ -55,6 +57,14 @@ async function main() {
     listCategories: getRestaurantCategories,
     listProducts: getCategoryProducts,
     getProduct: getAvailableProduct,
+    getCart: loadCart,
+    setCartQuantity: setCartItemQuantity,
+    deleteCartItem,
+    getTelegramPhoto: (fileId) => downloadTelegramProductPhoto(
+      fileId,
+      config.botToken,
+      (id) => bot.telegram.getFile(id),
+    ),
   });
   server = createHttpServer({ webhookHandler, webhookSecret, miniAppHandler });
   await listen(server, config.port);

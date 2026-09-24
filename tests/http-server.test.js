@@ -43,14 +43,14 @@ test('serves the Mini App entry point and frontend assets on the existing HTTP s
 });
 
 test('forwards Mini App API requests while retaining the Telegram webhook route', async () => {
-  let requestBody;
+  const forwarded = [];
   await withServer({
     webhookSecret: 'secret',
     webhookHandler: async (request, response) => response.writeHead(200).end('webhook-ok'),
     miniAppHandler: async (request, response, url) => {
-      requestBody = request.body;
+      forwarded.push({ method: request.method, body: request.body });
       response.writeHead(200, { 'content-type': 'application/json' })
-        .end(JSON.stringify({ path: url.pathname, body: request.body }));
+        .end(JSON.stringify({ path: url.pathname, method: request.method, body: request.body }));
     },
   }, async (base) => {
     const apiResponse = await fetch(`${base}/api/v1/auth/telegram`, {
@@ -59,7 +59,19 @@ test('forwards Mini App API requests while retaining the Telegram webhook route'
       body: JSON.stringify({ initData: 'signed-data' }),
     });
     assert.equal(apiResponse.status, 200);
-    assert.deepEqual(requestBody, { initData: 'signed-data' });
+    assert.deepEqual(forwarded[0].body, { initData: 'signed-data' });
+
+    const cartUpdate = await fetch(`${base}/api/v1/cart/items/51`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ quantity: 3 }),
+    });
+    assert.equal(cartUpdate.status, 200);
+    assert.deepEqual(forwarded[1], { method: 'PUT', body: { quantity: 3 } });
+
+    const cartDelete = await fetch(`${base}/api/v1/cart/items/51`, { method: 'DELETE' });
+    assert.equal(cartDelete.status, 200);
+    assert.deepEqual(forwarded[2], { method: 'DELETE', body: undefined });
 
     const webhookResponse = await fetch(`${base}/telegram/webhook`, {
       method: 'POST',

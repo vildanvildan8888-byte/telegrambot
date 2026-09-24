@@ -50,6 +50,25 @@ export async function addQuantity(userId, restaurantId, productId, quantity, dat
   return true;
 }
 
+export async function setQuantity(userId, restaurantId, productId, quantity, database = pool) {
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) {
+    throw new Error('Количество должно быть от 1 до 99.');
+  }
+  const product = await database.query(
+    'SELECT id FROM products WHERE id = $1 AND restaurant_id = $2 AND is_available = TRUE',
+    [productId, restaurantId],
+  );
+  if (!product.rowCount) return false;
+  await database.query(
+    `INSERT INTO cart_items(user_id, product_id, quantity)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (user_id, product_id) DO UPDATE
+     SET quantity = EXCLUDED.quantity, updated_at = NOW()`,
+    [userId, productId, quantity],
+  );
+  return true;
+}
+
 export async function removeCartItem(userId, restaurantId, productId, database = pool) {
   const result = await database.query(
     `DELETE FROM cart_items ci USING products p

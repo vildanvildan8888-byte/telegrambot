@@ -17,7 +17,7 @@ export async function upsertTelegramUser(from, database = pool) {
 
 export async function findTelegramUserById(telegramId, database = pool) {
   const result = await database.query(
-    `SELECT telegram_id, username, first_name, last_name, phone, address
+    `SELECT id, telegram_id, username, first_name, last_name, phone, address
      FROM users WHERE telegram_id = $1`,
     [String(telegramId)],
   );
