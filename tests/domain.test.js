@@ -4,6 +4,7 @@ import { formatMoney, formatOrderNumber, paymentLabel } from '../src/domain/form
 import { canTransition, nextStatuses, ORDER_STATUSES } from '../src/domain/order-status.js';
 import { PAYMENT_METHODS, validateCheckoutField } from '../src/domain/checkout.js';
 import { calculateCartTotal } from '../src/domain/cart.js';
+import { productCardText } from '../src/bot/messages.js';
 
 test('форматирует суммы и номера заказов', () => {
   assert.equal(formatMoney(87000), '87 000 сум');
@@ -34,4 +35,14 @@ test('считает итог корзины по текущим ценам и �
     { price: 15000, quantity: 1 },
   ]), 85000);
   assert.equal(calculateCartTotal([]), 0);
+});
+
+test('карточка товара показывает выбранное количество и его стоимость', () => {
+  const text = productCardText({
+    name: 'Чизбургер', description: 'С сыром', price: '35000',
+  }, 2);
+  assert.match(text, /Чизбургер/);
+  assert.match(text, /Цена: 35 000 сум/);
+  assert.match(text, /Количество: 2/);
+  assert.match(text, /Итого: 70 000 сум/);
 });

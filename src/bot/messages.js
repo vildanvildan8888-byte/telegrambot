@@ -8,6 +8,17 @@ export function cartText(cart) {
   return `🛒 Корзина\n\n${lines.join('\n')}\n\nИтого: ${formatMoney(cart.total)}`;
 }
 
+export function productCardText(product, quantity = 1) {
+  const unitPrice = Number(product.price);
+  return [
+    `🍽 ${product.name}`,
+    product.description || 'Описание не указано.',
+    `Цена: ${formatMoney(unitPrice)}`,
+    `Количество: ${quantity}`,
+    `Итого: ${formatMoney(unitPrice * quantity)}`,
+  ].join('\n\n');
+}
+
 export function orderText(order) {
   const items = order.items.map((item) => {
     const name = item.product_name ?? item.name;
