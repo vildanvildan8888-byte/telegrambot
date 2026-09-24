@@ -3,8 +3,8 @@ import { placeOrder } from '../../services/order-service.js';
 import { loadCart } from '../../services/cart-service.js';
 import { updateUserPhone } from '../../repositories/users.js';
 import { formatMoney, formatOrderNumber } from '../../domain/format.js';
-import { MAIN_MENU, paymentKeyboard, skipCommentKeyboard, adminOrderKeyboard } from '../keyboards.js';
-import { orderText } from '../messages.js';
+import { MAIN_MENU, paymentKeyboard, skipCommentKeyboard } from '../keyboards.js';
+import { notifyAdminAboutOrder } from '../order-notifications.js';
 import { validateCheckoutField } from '../../domain/checkout.js';
 
 async function startCheckout(ctx) {
@@ -37,9 +37,8 @@ async function choosePayment(ctx, method) {
       MAIN_MENU,
     );
 
-    const adminText = `🔔 Новый заказ\n\n${orderText(order)}`;
     try {
-      await ctx.telegram.sendMessage(config.adminId, adminText, adminOrderKeyboard(order));
+      await notifyAdminAboutOrder(ctx.telegram, config.adminId, order);
     } catch (error) {
       console.error(`Заказ ${order.order_number} сохранён, но уведомление администратору не отправлено:`, error.message);
       await ctx.reply('Заказ сохранён. Администратор не получил уведомление — пожалуйста, свяжитесь с рестораном.');

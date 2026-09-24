@@ -53,6 +53,16 @@ h1 { margin-bottom: 4px; font-size: clamp(28px, 8vw, 38px); letter-spacing: -.04
 
 .catalog-section { padding-top: 28px; }
 .section-heading { display: flex; align-items: end; justify-content: space-between; margin-bottom: 15px; }
+.orders-button {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--card);
+  font-size: 12px;
+  cursor: pointer;
+}
 .section-heading .eyebrow { color: var(--muted); }
 h2 { margin-bottom: 0; font-size: 22px; letter-spacing: -.025em; }
 
@@ -171,6 +181,49 @@ h2 { margin-bottom: 0; font-size: 22px; letter-spacing: -.025em; }
 }
 .cart-total { margin: 22px 3px 0; font-size: 19px; font-weight: 800; text-align: right; }
 .continue-shopping { width: 100%; }
+.primary-button {
+  width: 100%;
+  min-height: 54px;
+  margin-top: 16px;
+  border: 0;
+  border-radius: 16px;
+  color: var(--accent-text);
+  background: var(--accent);
+  font-weight: 750;
+  cursor: pointer;
+}
+.primary-button:disabled { opacity: .55; cursor: wait; }
+.checkout-form { display: grid; gap: 13px; }
+.form-field { display: grid; gap: 7px; font-size: 13px; font-weight: 700; }
+.form-field input, .form-field textarea {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  color: var(--text);
+  background: var(--card);
+  font: inherit;
+  font-weight: 400;
+}
+.form-field textarea { resize: vertical; }
+.form-section-title { margin: 5px 0 0; font-weight: 750; }
+.payment-option { display: flex; align-items: center; gap: 10px; min-height: 42px; }
+.payment-option input { accent-color: var(--accent); }
+.order-card {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  background: var(--card);
+}
+.order-card h3, .order-card p { margin: 0; }
+.order-card p { color: var(--muted); line-height: 1.45; }
+.order-list-button { width: 100%; color: var(--text); text-align: left; cursor: pointer; }
+.order-list-button strong, .order-list-button span { display: block; }
+.order-list-button span { color: var(--muted); font-size: 13px; }
+.order-detail-card { margin-bottom: 8px; }
 .empty-cart { padding: 26px 10px; color: var(--muted); text-align: center; }
 .product-card h3 { margin: 0 0 7px; font-size: 16px; }
 .product-card p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }

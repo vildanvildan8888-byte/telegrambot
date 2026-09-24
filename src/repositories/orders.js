@@ -12,9 +12,9 @@ export async function createOrder({ userId, restaurantId, details }, database = 
        FOR UPDATE OF ci, p`,
       [userId, restaurantId],
     );
-    if (!cart.rowCount) throw new Error('Корзина пуста. Добавьте товары перед оформлением.');
+    if (!cart.rowCount) throw Object.assign(new Error('Корзина пуста. Добавьте товары перед оформлением.'), { code: 'EMPTY_CART' });
     if (cart.rows.some((item) => !item.is_available)) {
-      throw new Error('Одно из блюд больше недоступно. Обновите корзину.');
+      throw Object.assign(new Error('Одно из блюд больше недоступно. Обновите корзину.'), { code: 'UNAVAILABLE_ITEM' });
     }
 
     const total = cart.rows.reduce(
@@ -62,6 +62,23 @@ export async function listUserOrders(userId, restaurantId, database = pool) {
     [userId, restaurantId],
   );
   return result.rows;
+}
+
+export async function getUserOrder(orderNumber, userId, restaurantId, database = pool) {
+  const orderResult = await database.query(
+    `SELECT o.id, o.order_number, o.status, o.total_amount, o.created_at,
+            o.customer_name, o.phone, o.address, o.comment, o.payment_method
+     FROM orders o
+     WHERE o.order_number = $1 AND o.user_id = $2 AND o.restaurant_id = $3`,
+    [orderNumber, userId, restaurantId],
+  );
+  if (!orderResult.rowCount) return null;
+  const order = orderResult.rows[0];
+  const itemsResult = await database.query(
+    'SELECT product_name, unit_price, quantity, line_total FROM order_items WHERE order_id = $1 ORDER BY id',
+    [order.id],
+  );
+  return { ...order, items: itemsResult.rows };
 }
 
 export async function getOrder(orderNumber, restaurantId, database = pool) {

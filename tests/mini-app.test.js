@@ -31,6 +31,9 @@ function testDependencies() {
   const internalIds = new Map();
   const calls = [];
   const cartItems = new Map();
+  const customerOrders = [];
+  let orderSequence = 1000;
+  let orderQueue = Promise.resolve();
   const categories = [
     { id: 7, slug: 'burgers', name: '🍔 Бургеры' },
     { id: 9, slug: 'snacks', name: '🍟 Закуски' },
@@ -110,6 +113,51 @@ function testDependencies() {
         const key = `${userId}:${productId}`;
         return restaurantId === RESTAURANT_ID && cartItems.delete(key);
       },
+      placeOrder: (input) => {
+        const place = async () => {
+          calls.push(['placeOrder', input.userId, input.restaurantId, input.details]);
+          const details = input.details;
+          if (!['cash', 'card_on_delivery'].includes(details.paymentMethod)
+            || String(details.name ?? '').trim().length < 2
+            || !/^\+?[\d ()-]{7,20}$/.test(String(details.phone ?? '').trim())
+            || String(details.address ?? '').trim().length < 5
+            || String(details.comment ?? '').length > 500) {
+            throw Object.assign(new Error('Проверьте данные заказа.'), { code: 'CHECKOUT_VALIDATION' });
+          }
+          const entries = [...cartItems.values()].filter((entry) => entry.userId === input.userId);
+          if (!entries.length) throw Object.assign(new Error('Корзина пуста.'), { code: 'EMPTY_CART' });
+          const items = entries.map((entry) => {
+            const product = products.find((item) => item.id === entry.productId);
+            return { product_id: product.id, product_name: product.name, name: product.name,
+              price: product.price, unit_price: product.price, quantity: entry.quantity,
+              line_total: product.price * entry.quantity };
+          });
+          for (const entry of entries) cartItems.delete(`${entry.userId}:${entry.productId}`);
+          const order = {
+            id: ++orderSequence, order_number: orderSequence, status: 'new',
+            total_amount: items.reduce((sum, item) => sum + item.line_total, 0),
+            created_at: new Date().toISOString(), customer_name: details.name, phone: details.phone,
+            address: details.address, comment: details.comment, payment_method: details.paymentMethod,
+            user_id: input.userId, restaurant_id: input.restaurantId, items,
+          };
+          customerOrders.push(order);
+          return order;
+        };
+        const result = orderQueue.then(place, place);
+        orderQueue = result.then(() => undefined, () => undefined);
+        return result;
+      },
+      listCustomerOrders: async (userId, restaurantId) => {
+        calls.push(['listCustomerOrders', userId, restaurantId]);
+        return customerOrders.filter((order) => order.user_id === userId && order.restaurant_id === restaurantId);
+      },
+      loadCustomerOrder: async (orderNumber, userId, restaurantId) => {
+        calls.push(['loadCustomerOrder', orderNumber, userId, restaurantId]);
+        return customerOrders.find((order) => order.order_number === orderNumber
+          && order.user_id === userId && order.restaurant_id === restaurantId) ?? null;
+      },
+      notifyAdmin: async (order) => { calls.push(['notifyAdmin', order.order_number]); },
+      notifyCustomer: async (telegramId, order) => { calls.push(['notifyCustomer', telegramId, order.order_number]); },
       getTelegramPhoto: async (fileId) => {
         calls.push(['telegramPhoto', fileId]);
         if (fileId !== 'telegram-photo-51') throw new Error('file missing');
@@ -480,5 +528,131 @@ test('changing product or user IDs cannot read another user or a product outside
     const foreignProduct = await fetch(`${base}/api/v1/products/999`, { headers: { cookie } });
     assert.equal(foreignProduct.status, 404);
     assert.deepEqual(calls.at(-1), ['product', RESTAURANT_ID, 999]);
+  });
+});
+
+const validOrderDetails = {
+  name: 'Али', phone: '+998 90 123 45 67', address: 'Ташкент, улица Навои, 10',
+  comment: 'Без лука', paymentMethod: 'cash',
+};
+
+async function addProductToCart(base, cookie, productId = 51, quantity = 2) {
+  return fetch(`${base}/api/v1/cart/items/${productId}`, {
+    method: 'PUT',
+    headers: { cookie, origin: ORIGIN, 'content-type': 'application/json' },
+    body: JSON.stringify({ quantity }),
+  });
+}
+
+test('Mini App order endpoint requires an authenticated Telegram session', async () => {
+  const { api, calls } = testDependencies();
+  await withApi(api, async (base) => {
+    const response = await fetch(`${base}/api/v1/orders`, {
+      method: 'POST', headers: { origin: ORIGIN, 'content-type': 'application/json' },
+      body: JSON.stringify(validOrderDetails),
+    });
+    assert.equal(response.status, 401);
+    assert.equal(calls.some(([type]) => type === 'placeOrder'), false);
+  });
+});
+
+test('Mini App checkout uses authenticated user, current server price, clears cart and notifies both sides', async () => {
+  const { api, calls } = testDependencies();
+  await withApi(api, async (base) => {
+    const login = await authenticate(base);
+    const cookie = login.headers.get('set-cookie').split(';', 1)[0];
+    await addProductToCart(base, cookie, 51, 2);
+    const response = await fetch(`${base}/api/v1/orders`, {
+      method: 'POST',
+      headers: { cookie, origin: ORIGIN, 'content-type': 'application/json' },
+      body: JSON.stringify({ ...validOrderDetails, user_id: 202, total: 1, price: 1, status: 'delivered' }),
+    });
+    const body = await response.json();
+    assert.equal(response.status, 201);
+    assert.equal(body.order.total, 70000);
+    assert.equal(body.order.items[0].unitPrice, 35000);
+    assert.equal(body.order.items[0].quantity, 2);
+    assert.equal(body.order.items[0].lineTotal, 70000);
+    assert.equal(body.order.status, 'new');
+    assert.deepEqual(body.notifications, { customer: true, admin: true });
+    assert.deepEqual(calls.find(([type]) => type === 'placeOrder').slice(1, 3), [1101, RESTAURANT_ID]);
+    assert.equal(Object.hasOwn(body.order, 'user_id'), false);
+    assert.equal(Object.hasOwn(body.order, 'id'), false);
+    assert.equal(calls.some(([type, id]) => type === 'notifyCustomer' && id === '101'), true);
+    assert.equal(calls.some(([type]) => type === 'notifyAdmin'), true);
+    const refreshed = await fetch(`${base}/api/v1/cart`, { headers: { cookie } });
+    assert.deepEqual((await refreshed.json()).cart, { items: [], total: 0 });
+  });
+});
+
+test('empty Mini App cart and unsupported payment methods are rejected', async () => {
+  const { api, calls } = testDependencies();
+  await withApi(api, async (base) => {
+    const login = await authenticate(base);
+    const cookie = login.headers.get('set-cookie').split(';', 1)[0];
+    const empty = await fetch(`${base}/api/v1/orders`, {
+      method: 'POST', headers: { cookie, origin: ORIGIN, 'content-type': 'application/json' },
+      body: JSON.stringify(validOrderDetails),
+    });
+    assert.equal(empty.status, 409);
+    await addProductToCart(base, cookie);
+    const invalid = await fetch(`${base}/api/v1/orders`, {
+      method: 'POST', headers: { cookie, origin: ORIGIN, 'content-type': 'application/json' },
+      body: JSON.stringify({ ...validOrderDetails, paymentMethod: 'online' }),
+    });
+    assert.equal(invalid.status, 400);
+    assert.equal(calls.some(([type]) => type === 'notifyAdmin'), false);
+  });
+});
+
+test('order history and detail endpoints are scoped to the signed-in user and restaurant', async () => {
+  const { api, calls } = testDependencies();
+  await withApi(api, async (base) => {
+    const firstLogin = await authenticate(base, signedInitData({ id: 101 }));
+    const firstCookie = firstLogin.headers.get('set-cookie').split(';', 1)[0];
+    await addProductToCart(base, firstCookie, 51, 1);
+    const created = await fetch(`${base}/api/v1/orders`, {
+      method: 'POST', headers: { cookie: firstCookie, origin: ORIGIN, 'content-type': 'application/json' },
+      body: JSON.stringify(validOrderDetails),
+    });
+    const order = (await created.json()).order;
+
+    const list = await fetch(`${base}/api/v1/orders`, { headers: { cookie: firstCookie } });
+    const listed = (await list.json()).orders;
+    assert.equal(list.status, 200);
+    assert.equal(listed.length, 1);
+    assert.equal(listed[0].status, 'new');
+    assert.equal(listed[0].statusLabel, 'Новый');
+
+    const detail = await fetch(`${base}/api/v1/orders/${order.orderNumber}`, { headers: { cookie: firstCookie } });
+    const detailBody = await detail.json();
+    assert.equal(detail.status, 200);
+    assert.equal(detailBody.order.address, validOrderDetails.address);
+    assert.equal(detailBody.order.paymentMethod, 'cash');
+    assert.equal(detailBody.order.items[0].name, 'Классический бургер');
+
+    const secondLogin = await authenticate(base, signedInitData({ id: 202 }));
+    const secondCookie = secondLogin.headers.get('set-cookie').split(';', 1)[0];
+    const foreignList = await fetch(`${base}/api/v1/orders`, { headers: { cookie: secondCookie } });
+    const foreignDetail = await fetch(`${base}/api/v1/orders/${order.orderNumber}`, { headers: { cookie: secondCookie } });
+    assert.deepEqual((await foreignList.json()).orders, []);
+    assert.equal(foreignDetail.status, 404);
+    assert.deepEqual(calls.filter(([type]) => type === 'loadCustomerOrder').at(-1),
+      ['loadCustomerOrder', Number(order.orderNumber), 1202, RESTAURANT_ID]);
+  });
+});
+
+test('repeated Mini App checkout submission cannot create two orders from the same cart', async () => {
+  const { api } = testDependencies();
+  await withApi(api, async (base) => {
+    const login = await authenticate(base);
+    const cookie = login.headers.get('set-cookie').split(';', 1)[0];
+    await addProductToCart(base, cookie, 51, 1);
+    const submit = () => fetch(`${base}/api/v1/orders`, {
+      method: 'POST', headers: { cookie, origin: ORIGIN, 'content-type': 'application/json' },
+      body: JSON.stringify(validOrderDetails),
+    });
+    const responses = await Promise.all([submit(), submit()]);
+    assert.deepEqual(responses.map((response) => response.status).sort(), [201, 409]);
   });
 });

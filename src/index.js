@@ -6,6 +6,8 @@ import { createBot } from './bot/index.js';
 import { createHttpServer } from './http-server.js';
 import { buildWebhookUrl, resolveWebhookSecret } from './webhook.js';
 import { createMiniAppApi } from './mini-app/api.js';
+import { placeOrder, listCustomerOrders, loadCustomerOrder } from './services/order-service.js';
+import { notifyAdminAboutOrder, notifyCustomerAboutOrder } from './bot/order-notifications.js';
 import { downloadTelegramProductPhoto } from './mini-app/telegram-photo.js';
 import { deleteCartItem, loadCart, setCartItemQuantity } from './services/cart-service.js';
 import {
@@ -65,6 +67,11 @@ async function main() {
       config.botToken,
       (id) => bot.telegram.getFile(id),
     ),
+    placeOrder,
+    listCustomerOrders,
+    loadCustomerOrder,
+    notifyAdmin: (order) => notifyAdminAboutOrder(bot.telegram, config.adminId, order),
+    notifyCustomer: (telegramId, order) => notifyCustomerAboutOrder(bot.telegram, telegramId, order),
   });
   server = createHttpServer({ webhookHandler, webhookSecret, miniAppHandler });
   await listen(server, config.port);

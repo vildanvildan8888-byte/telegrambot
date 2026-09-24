@@ -5,6 +5,8 @@ import {
   validateTelegramInitData,
   verifyMiniAppSession,
 } from './auth.js';
+import { ORDER_STATUSES } from '../domain/order-status.js';
+import { paymentLabel } from '../domain/format.js';
 
 function json(response, status, body, headers = {}) {
   response.writeHead(status, {
@@ -55,6 +57,34 @@ function cartView(cart) {
   };
 }
 
+function orderSummary(order) {
+  return {
+    orderNumber: String(order.order_number),
+    total: Number(order.total_amount),
+    status: order.status,
+    statusLabel: ORDER_STATUSES[order.status] ?? order.status,
+    createdAt: order.created_at,
+  };
+}
+
+function orderDetails(order) {
+  return {
+    ...orderSummary(order),
+    name: order.customer_name,
+    phone: order.phone,
+    address: order.address,
+    comment: order.comment ?? '',
+    paymentMethod: order.payment_method,
+    paymentLabel: paymentLabel(order.payment_method),
+    items: (order.items ?? []).map((item) => ({
+      name: item.product_name ?? item.name,
+      unitPrice: Number(item.unit_price ?? item.price),
+      quantity: Number(item.quantity),
+      lineTotal: Number(item.line_total ?? Number(item.unit_price ?? item.price) * Number(item.quantity)),
+    })),
+  };
+}
+
 function parsePositiveId(value) {
   if (!/^\d+$/.test(String(value ?? ''))) return null;
   const id = Number(value);
@@ -75,9 +105,15 @@ export function createMiniAppApi({
   setCartQuantity,
   deleteCartItem,
   getTelegramPhoto,
+  placeOrder,
+  listCustomerOrders,
+  loadCustomerOrder,
+  notifyAdmin,
+  notifyCustomer,
 }) {
   const required = [upsertUser, findUserByTelegramId, listCategories, listProducts, getProduct,
-    getCart, setCartQuantity, deleteCartItem, getTelegramPhoto];
+    getCart, setCartQuantity, deleteCartItem, getTelegramPhoto, placeOrder,
+    listCustomerOrders, loadCustomerOrder, notifyAdmin, notifyCustomer];
   if (required.some((dependency) => typeof dependency !== 'function')) {
     throw new TypeError('Mini App API repository functions are required.');
   }
@@ -138,8 +174,54 @@ export function createMiniAppApi({
         return;
       }
 
-      if ((method === 'PUT' || method === 'DELETE') && request.headers.origin !== origin) {
+      if ((method === 'POST' || method === 'PUT' || method === 'DELETE') && request.headers.origin !== origin) {
         json(response, 403, { error: 'Запрос пришёл с недоверенного источника.' });
+        return;
+      }
+
+      if (method === 'POST' && pathname === '/api/v1/orders') {
+        const details = {
+          name: request.body?.name,
+          phone: request.body?.phone,
+          address: request.body?.address,
+          comment: request.body?.comment ?? '',
+          paymentMethod: request.body?.paymentMethod,
+        };
+        try {
+          const order = await placeOrder({ userId: user.id, restaurantId, details });
+          const notifications = { customer: false, admin: false };
+          try { await notifyCustomer(user.telegram_id, order); notifications.customer = true; }
+          catch (error) { console.error('Заказ создан, уведомление клиента не отправлено:', error.message); }
+          try { await notifyAdmin(order); notifications.admin = true; }
+          catch (error) { console.error('Заказ создан, уведомление администратору не отправлено:', error.message); }
+          json(response, 201, { order: orderDetails(order), notifications });
+        } catch (error) {
+          const status = error.code === 'CHECKOUT_VALIDATION' ? 400
+            : error.code === 'EMPTY_CART' ? 409
+              : error.code === 'UNAVAILABLE_ITEM' ? 409 : 500;
+          if (status === 500) console.error('Ошибка оформления Mini App заказа:', error.message);
+          json(response, status, { error: status === 500 ? 'Не удалось оформить заказ.' : error.message });
+        }
+        return;
+      }
+
+      if (method === 'GET' && pathname === '/api/v1/orders') {
+        const orders = await listCustomerOrders(user.id, restaurantId);
+        json(response, 200, { orders: orders.map(orderSummary) });
+        return;
+      }
+
+      const customerOrderMatch = pathname.match(/^\/api\/v1\/orders\/(\d+)$/);
+      if (method === 'GET' && customerOrderMatch) {
+        const orderNumber = parsePositiveId(customerOrderMatch[1]);
+        const order = orderNumber
+          ? await loadCustomerOrder(orderNumber, user.id, restaurantId)
+          : null;
+        if (!order) {
+          json(response, 404, { error: 'Заказ не найден.' });
+          return;
+        }
+        json(response, 200, { order: orderDetails(order) });
         return;
       }
 

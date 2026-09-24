@@ -1,9 +1,12 @@
 import {
   authenticateTelegram,
+  createOrder,
   deleteCartItem,
   getCart,
   getCategories,
   getMe,
+  getOrder,
+  getOrders,
   getProduct,
   getProducts,
   setCartItemQuantity,
@@ -18,12 +21,15 @@ const catalogTitleElement = document.querySelector('#catalog-title');
 const cartButton = document.querySelector('#cart-button');
 const cartButtonCount = document.querySelector('#cart-button-count');
 const cartButtonTotal = document.querySelector('#cart-button-total');
+const ordersButton = document.querySelector('#orders-button');
 
 let categories = [];
 let selectedCategoryId = null;
 let selectedProducts = [];
 let productRequestId = 0;
 let cart = { items: [], total: 0 };
+let profile = null;
+let checkoutSubmitting = false;
 const productQuantities = new Map();
 
 function applyTelegramTheme() {
@@ -250,8 +256,14 @@ function renderCart() {
   if (!cart.items.length) {
     const empty = document.createElement('p');
     empty.className = 'empty-cart';
-    empty.textContent = 'Корзина пока пуста.';
+    empty.textContent = '🛒 Корзина пуста';
     productsElement.append(empty);
+    const menu = document.createElement('button');
+    menu.type = 'button';
+    menu.className = 'primary-button';
+    menu.textContent = 'Перейти в меню';
+    menu.addEventListener('click', continueShopping);
+    productsElement.append(menu);
   }
   for (const item of cart.items) {
     const row = document.createElement('article');
@@ -296,13 +308,233 @@ function renderCart() {
   const total = document.createElement('p');
   total.className = 'cart-total';
   total.textContent = `Итого: ${formatPrice(cart.total)}`;
-  productsElement.append(total);
+  if (cart.items.length) {
+    productsElement.append(total);
+    const checkout = document.createElement('button');
+    checkout.type = 'button';
+    checkout.className = 'primary-button';
+    checkout.textContent = 'Оформить заказ';
+    checkout.addEventListener('click', () => void prepareCheckout());
+    productsElement.append(checkout);
+    const back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'back-button continue-shopping';
+    back.textContent = '← Продолжить покупки';
+    back.addEventListener('click', continueShopping);
+    productsElement.append(back);
+  }
+}
+
+function cartSignature(value) {
+  return JSON.stringify({
+    items: value.items.map((item) => [String(item.productId), item.quantity, item.price, item.lineTotal]),
+    total: value.total,
+  });
+}
+
+function appendField(form, labelText, name, value, type = 'text', required = true, maxLength) {
+  const label = document.createElement('label');
+  label.className = 'form-field';
+  label.textContent = labelText;
+  const input = document.createElement(name === 'comment' ? 'textarea' : 'input');
+  input.name = name;
+  if (name !== 'comment') input.type = type;
+  input.value = value ?? '';
+  input.required = required;
+  if (maxLength) input.maxLength = maxLength;
+  if (name === 'name') { input.minLength = 2; input.autocomplete = 'name'; }
+  if (name === 'phone') { input.minLength = 7; input.maxLength = 20; input.autocomplete = 'tel'; }
+  if (name === 'address') { input.minLength = 5; input.autocomplete = 'street-address'; }
+  if (name === 'comment') input.rows = 3;
+  label.append(input);
+  form.append(label);
+  return input;
+}
+
+function renderCheckoutForm() {
+  catalogTitleElement.textContent = 'Оформление заказа';
+  productsElement.replaceChildren();
+  const form = document.createElement('form');
+  form.className = 'checkout-form';
+  appendField(form, 'Имя', 'name', profile?.firstName ?? '', 'text', true, 100);
+  appendField(form, 'Телефон', 'phone', profile?.phone ?? '', 'tel', true, 20);
+  appendField(form, 'Адрес доставки', 'address', profile?.address ?? '', 'text', true, 300);
+  appendField(form, 'Комментарий', 'comment', '', 'text', false, 500);
+  const paymentTitle = document.createElement('p');
+  paymentTitle.className = 'form-section-title';
+  paymentTitle.textContent = 'Способ оплаты';
+  form.append(paymentTitle);
+  for (const [value, labelText] of [['cash', 'Наличные курьеру'], ['card_on_delivery', 'Картой курьеру']]) {
+    const label = document.createElement('label');
+    label.className = 'payment-option';
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'paymentMethod';
+    radio.value = value;
+    radio.required = true;
+    if (value === 'cash') radio.checked = true;
+    label.append(radio, document.createTextNode(labelText));
+    form.append(label);
+  }
+  const total = document.createElement('p');
+  total.className = 'cart-total';
+  total.textContent = `Итого: ${formatPrice(cart.total)}`;
+  const submit = document.createElement('button');
+  submit.type = 'submit';
+  submit.className = 'primary-button';
+  submit.textContent = 'Оформить заказ';
   const back = document.createElement('button');
   back.type = 'button';
   back.className = 'back-button continue-shopping';
-  back.textContent = '← Продолжить покупки';
-  back.addEventListener('click', continueShopping);
-  productsElement.append(back);
+  back.textContent = '← Вернуться в корзину';
+  back.addEventListener('click', () => { catalogTitleElement.textContent = 'Корзина'; renderCart(); });
+  form.append(total, submit, back);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (checkoutSubmitting) return;
+    checkoutSubmitting = true;
+    submit.disabled = true;
+    submit.textContent = 'Оформляем…';
+    setStatus();
+    const data = new FormData(form);
+    try {
+      const result = await createOrder({
+        name: data.get('name'), phone: data.get('phone'), address: data.get('address'),
+        comment: data.get('comment'), paymentMethod: data.get('paymentMethod'),
+      });
+      cart = { items: [], total: 0 };
+      updateCartButton();
+      renderOrderSuccess(result.order, result.notifications);
+      checkoutSubmitting = false;
+    } catch (error) {
+      setStatus(error.message || 'Не удалось оформить заказ.', 'error');
+      submit.disabled = false;
+      submit.textContent = 'Оформить заказ';
+      checkoutSubmitting = false;
+    }
+  });
+  productsElement.append(form);
+  setStatus();
+}
+
+async function prepareCheckout() {
+  setStatus('Проверяем актуальную корзину…');
+  try {
+    const latest = (await getCart()).cart;
+    const changed = cartSignature(latest) !== cartSignature(cart);
+    cart = latest;
+    updateCartButton();
+    if (!cart.items.length) {
+      catalogTitleElement.textContent = 'Корзина';
+      renderCart();
+      setStatus('Корзина пуста. Добавьте блюда из меню.');
+      return;
+    }
+    if (changed) {
+      catalogTitleElement.textContent = 'Корзина';
+      renderCart();
+      setStatus('Корзина обновилась. Проверьте количество и сумму перед оформлением.');
+      return;
+    }
+    renderCheckoutForm();
+  } catch (error) {
+    setStatus(error.message || 'Не удалось проверить корзину.', 'error');
+  }
+}
+
+function renderOrderSuccess(order, notifications = {}) {
+  catalogTitleElement.textContent = 'Заказ оформлен';
+  productsElement.replaceChildren();
+  const card = document.createElement('article');
+  card.className = 'order-card';
+  const title = document.createElement('h3');
+  title.textContent = '✅ Заказ оформлен!';
+  const number = document.createElement('p');
+  number.textContent = `Заказ №${order.orderNumber}`;
+  const total = document.createElement('p');
+  total.textContent = `Сумма: ${formatPrice(order.total)}`;
+  const status = document.createElement('p');
+  status.textContent = `Статус: 🆕 ${order.statusLabel}`;
+  card.append(title, number, total, status);
+  productsElement.append(card);
+  if (notifications.customer === false || notifications.admin === false) {
+    setStatus('Заказ сохранён, но одно из Telegram-уведомлений не удалось отправить.');
+  } else setStatus();
+  const details = makeButton('📦 Мой заказ', 'primary-button', () => void openOrder(order.orderNumber));
+  const menu = makeButton('🍔 Вернуться в меню', 'back-button', continueShopping);
+  productsElement.append(details, menu);
+}
+
+function makeButton(text, className, handler) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = className;
+  button.textContent = text;
+  button.addEventListener('click', handler);
+  return button;
+}
+
+function renderOrderList(orders) {
+  catalogTitleElement.textContent = 'Мои заказы';
+  categoriesElement.hidden = true;
+  productsElement.replaceChildren();
+  setStatus();
+  if (!orders.length) {
+    const empty = document.createElement('p');
+    empty.className = 'empty-cart';
+    empty.textContent = 'У вас пока нет заказов.';
+    productsElement.append(empty);
+  }
+  for (const order of orders) {
+    const button = makeButton('', 'order-card order-list-button', () => void openOrder(order.orderNumber));
+    const title = document.createElement('strong');
+    title.textContent = `Заказ №${order.orderNumber}`;
+    const detail = document.createElement('span');
+    detail.textContent = `${formatPrice(order.total)} · ${order.statusLabel}`;
+    button.append(title, detail);
+    productsElement.append(button);
+  }
+  productsElement.append(makeButton('🍔 К меню', 'back-button continue-shopping', continueShopping));
+}
+
+async function openOrders() {
+  categoriesElement.hidden = true;
+  productsElement.replaceChildren();
+  catalogTitleElement.textContent = 'Мои заказы';
+  setStatus('Загружаем заказы…');
+  try { renderOrderList((await getOrders()).orders); }
+  catch (error) { setStatus(error.message || 'Не удалось загрузить заказы.', 'error'); }
+}
+
+async function openOrder(orderNumber) {
+  categoriesElement.hidden = true;
+  productsElement.replaceChildren();
+  catalogTitleElement.textContent = `Заказ №${orderNumber}`;
+  setStatus('Загружаем заказ…');
+  try {
+    const order = (await getOrder(orderNumber)).order;
+    productsElement.replaceChildren();
+    const card = document.createElement('article');
+    card.className = 'order-card order-detail-card';
+    const lines = [
+      `Заказ №${order.orderNumber}`,
+      `Дата: ${new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(order.createdAt))}`,
+      `Статус: ${order.statusLabel}`,
+      ...order.items.map((item) => `${item.name} × ${item.quantity} — ${formatPrice(item.lineTotal)}`),
+      `Итого: ${formatPrice(order.total)}`,
+      `Адрес: ${order.address}`,
+      `Оплата: ${order.paymentLabel}`,
+      ...(order.comment ? [`Комментарий: ${order.comment}`] : []),
+    ];
+    for (const line of lines) {
+      const paragraph = document.createElement('p');
+      paragraph.textContent = line;
+      card.append(paragraph);
+    }
+    productsElement.append(card);
+    productsElement.append(makeButton('← К моим заказам', 'back-button continue-shopping', () => void openOrders()));
+    setStatus();
+  } catch (error) { setStatus(error.message || 'Не удалось загрузить заказ.', 'error'); }
 }
 
 async function changeCartItem(productId, quantity, remove = false) {
@@ -345,6 +577,7 @@ async function openCart() {
 }
 
 cartButton.addEventListener('click', () => void openCart());
+ordersButton.addEventListener('click', () => void openOrders());
 
 async function start() {
   if (!telegramApp?.initData) {
@@ -358,11 +591,12 @@ async function start() {
   telegramApp.onEvent('themeChanged', applyTelegramTheme);
   try {
     await authenticateTelegram();
-    const [profile, catalog, currentCart] = await Promise.all([getMe(), getCategories(), getCart()]);
+    const [currentProfile, catalog, currentCart] = await Promise.all([getMe(), getCategories(), getCart()]);
+    profile = currentProfile.user;
     cart = currentCart.cart;
     updateCartButton();
-    greetingElement.textContent = profile.user.firstName
-      ? `Здравствуйте, ${profile.user.firstName}!`
+    greetingElement.textContent = profile.firstName
+      ? `Здравствуйте, ${profile.firstName}!`
       : 'Готовим для вас';
     categories = catalog.categories;
     if (!categories.length) {

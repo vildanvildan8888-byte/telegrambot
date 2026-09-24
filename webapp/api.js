@@ -59,4 +59,16 @@ export function deleteCartItem(productId) {
   return request(`/api/v1/cart/items/${encodeURIComponent(productId)}`, { method: 'DELETE' });
 }
 
+export function createOrder(details) {
+  return request('/api/v1/orders', { method: 'POST', body: JSON.stringify(details) });
+}
+
+export function getOrders() {
+  return request('/api/v1/orders');
+}
+
+export function getOrder(orderNumber) {
+  return request(`/api/v1/orders/${encodeURIComponent(orderNumber)}`);
+}
+
 export { telegramApp };
