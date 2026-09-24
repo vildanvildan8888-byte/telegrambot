@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ensureSession, getSessionKey } from '../src/bot/session.js';
 import { changeSelectedProductQuantity, selectedProductQuantity } from '../src/bot/product-quantity.js';
+import { clearProductPhoto, showProductPhoto } from '../src/bot/product-photo.js';
 
 test('session keys cover private, group, inline, and senderless chat updates', () => {
   assert.equal(getSessionKey({ from: { id: 7 }, chat: { id: 7 } }), '7:7');
@@ -53,4 +54,55 @@ test('selected product quantities are independent and bounded from 1 to 99', () 
   assert.deepEqual(changeSelectedProductQuantity(session, 101, -1), {
     current: 3, quantity: 2, changed: true,
   });
+});
+
+test('product photos are optional and failed uploads fall back without interrupting the card', async () => {
+  const calls = [];
+  const ctx = {
+    session: {},
+    replyWithPhoto: async (url) => {
+      calls.push(url);
+      throw new Error('Bad Request: wrong file identifier');
+    },
+  };
+
+  assert.equal(await showProductPhoto(ctx, { id: 1, photo_url: null }), false);
+  assert.equal(await showProductPhoto(ctx, { id: 1, photo_url: 'invalid-photo-reference' }), false);
+  assert.deepEqual(calls, ['invalid-photo-reference']);
+  assert.equal(ctx.session.productPhotoMessage, null);
+});
+
+test('a successful product photo is recorded in the active session for cleanup', async () => {
+  const sent = [];
+  const ctx = {
+    session: {},
+    replyWithPhoto: async (...args) => {
+      sent.push(args);
+      return { chat: { id: 7 }, message_id: 88 };
+    },
+  };
+
+  assert.equal(await showProductPhoto(ctx, {
+    id: 2,
+    name: 'Чизбургер',
+    photo_url: 'telegram-file-id',
+  }), true);
+  assert.deepEqual(sent, [[
+    'telegram-file-id',
+    { caption: '📷 Чизбургер' },
+  ]]);
+  assert.deepEqual(ctx.session.productPhotoMessage, { chatId: 7, messageId: 88 });
+});
+
+test('the photo associated with a product card is deleted when leaving the card', async () => {
+  const deleted = [];
+  const ctx = {
+    session: { productPhotoMessage: { chatId: 7, messageId: 99 } },
+    telegram: { deleteMessage: async (...args) => deleted.push(args) },
+  };
+
+  assert.equal(await clearProductPhoto(ctx), true);
+  assert.deepEqual(deleted, [[7, 99]]);
+  assert.equal(ctx.session.productPhotoMessage, null);
+  assert.equal(await clearProductPhoto(ctx), false);
 });

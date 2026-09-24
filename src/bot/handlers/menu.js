@@ -3,6 +3,7 @@ import { getRestaurantCategories, getCategoryProducts, getAvailableProduct } fro
 import { categoriesKeyboard, categoryScreenKeyboard, MAIN_MENU, productKeyboard, productListKeyboard } from '../keyboards.js';
 import { productCardText } from '../messages.js';
 import { changeSelectedProductQuantity, selectedProductQuantity } from '../product-quantity.js';
+import { clearProductPhoto, showProductPhoto } from '../product-photo.js';
 
 async function updateProductCard(ctx, product) {
   const quantity = selectedProductQuantity(ctx.session, product.id);
@@ -25,6 +26,7 @@ export function registerMenuHandlers(bot) {
   bot.hears('🍔 Меню', showMenu);
   bot.action('menu:show', async (ctx) => {
     await ctx.answerCbQuery();
+    await clearProductPhoto(ctx);
     const categories = await getRestaurantCategories(config.restaurantId);
     if (!categories.length) {
       return ctx.editMessageText('Меню пока пустое. Попробуйте позже.', categoryScreenKeyboard());
@@ -38,6 +40,7 @@ export function registerMenuHandlers(bot) {
   });
   bot.action(/^category:(\d+)$/, async (ctx) => {
     await ctx.answerCbQuery();
+    await clearProductPhoto(ctx);
     const categoryId = ctx.match[1];
     const products = await getCategoryProducts(config.restaurantId, categoryId);
     if (!products.length) {
@@ -59,7 +62,9 @@ export function registerMenuHandlers(bot) {
     }
     ctx.session.menuCategoryId = Number(categoryId);
     await ctx.answerCbQuery();
-    return updateProductCard(ctx, product);
+    await clearProductPhoto(ctx);
+    await updateProductCard(ctx, product);
+    await showProductPhoto(ctx, product);
   });
   bot.action(/^product:quantity:(\d+):(-1|1)$/, async (ctx) => {
     const product = await getAvailableProduct(config.restaurantId, ctx.match[1]);

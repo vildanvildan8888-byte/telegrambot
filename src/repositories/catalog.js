@@ -1,4 +1,5 @@
 import { pool } from '../database/pool.js';
+import { deleteProductPhoto, saveProductPhoto } from './catalog-photo.js';
 
 export async function listCategories(restaurantId, database = pool) {
   const result = await database.query(
@@ -30,4 +31,33 @@ export async function getProduct(restaurantId, productId, database = pool) {
     [restaurantId, productId],
   );
   return result.rows[0] ?? null;
+}
+
+export async function listProductsForManagement(restaurantId, categoryId, database = pool) {
+  const result = await database.query(
+    `SELECT id, category_id, name, photo_url
+     FROM products
+     WHERE restaurant_id = $1 AND category_id = $2
+     ORDER BY name`,
+    [restaurantId, categoryId],
+  );
+  return result.rows;
+}
+
+export async function getProductForManagement(restaurantId, categoryId, productId, database = pool) {
+  const result = await database.query(
+    `SELECT id, category_id, name, photo_url
+     FROM products
+     WHERE restaurant_id = $1 AND category_id = $2 AND id = $3`,
+    [restaurantId, categoryId, productId],
+  );
+  return result.rows[0] ?? null;
+}
+
+export function updateProductPhoto(restaurantId, productId, fileId, database = pool) {
+  return saveProductPhoto(database, restaurantId, productId, fileId);
+}
+
+export function removeProductPhoto(restaurantId, productId, database = pool) {
+  return deleteProductPhoto(database, restaurantId, productId);
 }

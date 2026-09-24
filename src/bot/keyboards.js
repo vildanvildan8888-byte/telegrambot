@@ -82,3 +82,41 @@ export function adminOrderKeyboard(order) {
     Markup.button.callback(label, `admin:status:${order.order_number}:${status}`),
   ]));
 }
+
+export function adminMenuKeyboard() {
+  return Markup.inlineKeyboard([[
+    Markup.button.callback('📷 Фотографии товаров', 'admin:photos'),
+  ]]);
+}
+
+export function adminPhotoCategoriesKeyboard(categories) {
+  return Markup.inlineKeyboard([
+    ...categories.map((category) => [
+      Markup.button.callback(category.name, `admin:photos:category:${category.id}`),
+    ]),
+    [Markup.button.callback('⬅️ Назад', 'admin:home')],
+  ]);
+}
+
+export function adminPhotoProductsKeyboard(categoryId, products) {
+  return Markup.inlineKeyboard([
+    ...products.map((product) => [
+      Markup.button.callback(
+        `${product.photo_url ? '📷' : '▫️'} ${product.name}`,
+        `admin:photos:product:${categoryId}:${product.id}`,
+      ),
+    ]),
+    [Markup.button.callback('⬅️ Назад к категориям', 'admin:photos')],
+  ]);
+}
+
+export function adminPhotoProductKeyboard(categoryId, productId, hasPhoto) {
+  const rows = hasPhoto
+    ? [
+      [Markup.button.callback('🔄 Заменить фото', `admin:photos:replace:${categoryId}:${productId}`)],
+      [Markup.button.callback('🗑 Удалить фото', `admin:photos:delete:${categoryId}:${productId}`)],
+    ]
+    : [];
+  rows.push([Markup.button.callback('⬅️ Назад', `admin:photos:category:${categoryId}`)]);
+  return Markup.inlineKeyboard(rows);
+}
