@@ -5,6 +5,11 @@ import { productCardText } from '../messages.js';
 import { changeSelectedProductQuantity, selectedProductQuantity } from '../product-quantity.js';
 import { clearProductPhoto, editProductCard, showProductPhoto } from '../product-photo.js';
 
+function miniAppLaunchUrl(ctx) {
+  if (ctx.chat?.type !== 'private' || config.webAppSessionSecret.length < 32 || !config.webhookUrl) return undefined;
+  return new URL('/app/', config.webhookUrl).toString();
+}
+
 async function updateProductCard(ctx, product) {
   const quantity = selectedProductQuantity(ctx.session, product.id);
   const text = productCardText(product, quantity);
@@ -18,7 +23,7 @@ export async function showMenu(ctx) {
   if (!categories.length) {
     return ctx.reply('Меню пока пустое. Попробуйте позже.', MAIN_MENU);
   }
-  return ctx.reply('🍔 Выберите категорию:', categoriesKeyboard(categories));
+  return ctx.reply('🍔 Выберите категорию:', categoriesKeyboard(categories, miniAppLaunchUrl(ctx)));
 }
 
 export function registerMenuHandlers(bot) {
@@ -33,7 +38,7 @@ export function registerMenuHandlers(bot) {
       if (wasPhoto) return ctx.reply('Меню пока пустое. Попробуйте позже.', categoryScreenKeyboard());
       return ctx.editMessageText('Меню пока пустое. Попробуйте позже.', categoryScreenKeyboard());
     }
-    const keyboard = categoriesKeyboard(categories);
+    const keyboard = categoriesKeyboard(categories, miniAppLaunchUrl(ctx));
     if (wasPhoto) return ctx.reply('🍔 Выберите категорию:', keyboard);
     return ctx.editMessageText('🍔 Выберите категорию:', keyboard);
   });

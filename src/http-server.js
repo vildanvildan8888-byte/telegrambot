@@ -1,7 +1,25 @@
 import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
 import { secretsMatch, WEBHOOK_PATH } from './webhook.js';
 
 const MAX_BODY_BYTES = 1024 * 1024;
+const WEBAPP_ASSETS = new Map([
+  ['/app/', { file: new URL('../webapp/index.html', import.meta.url), type: 'text/html; charset=utf-8' }],
+  ['/app/index.html', { file: new URL('../webapp/index.html', import.meta.url), type: 'text/html; charset=utf-8' }],
+  ['/app/style.css', { file: new URL('../webapp/style.css', import.meta.url), type: 'text/css; charset=utf-8' }],
+  ['/app/app.js', { file: new URL('../webapp/app.js', import.meta.url), type: 'text/javascript; charset=utf-8' }],
+  ['/app/api.js', { file: new URL('../webapp/api.js', import.meta.url), type: 'text/javascript; charset=utf-8' }],
+]);
+const WEBAPP_CSP = [
+  "default-src 'self'",
+  "script-src 'self' https://telegram.org",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "connect-src 'self'",
+  "base-uri 'none'",
+  "object-src 'none'",
+  "form-action 'self'",
+].join('; ');
 
 function sendJson(response, statusCode, body) {
   response.writeHead(statusCode, { 'content-type': 'application/json; charset=utf-8' });
@@ -42,7 +60,7 @@ function readJsonBody(request) {
   });
 }
 
-export function createHttpServer({ webhookHandler, webhookSecret }) {
+export function createHttpServer({ webhookHandler, webhookSecret, miniAppHandler }) {
   if (typeof webhookHandler !== 'function') throw new TypeError('webhookHandler is required');
   if (!webhookSecret) throw new TypeError('webhookSecret is required');
 
@@ -52,6 +70,70 @@ export function createHttpServer({ webhookHandler, webhookSecret }) {
       sendJson(response, 200, { status: 'ok' });
       return;
     }
+
+    if (pathname === '/app' && request.method === 'GET') {
+      response.writeHead(308, { location: '/app/' }).end();
+      return;
+    }
+    if (WEBAPP_ASSETS.has(pathname)) {
+      if (request.method !== 'GET') {
+        response.setHeader('allow', 'GET');
+        sendJson(response, 405, { error: 'Method not allowed' });
+        return;
+      }
+      try {
+        const asset = WEBAPP_ASSETS.get(pathname);
+        const contents = await readFile(asset.file);
+        response.writeHead(200, {
+          'content-type': asset.type,
+          'content-security-policy': WEBAPP_CSP,
+          'x-content-type-options': 'nosniff',
+          'referrer-policy': 'no-referrer',
+          'cache-control': pathname.endsWith('.html') ? 'no-cache' : 'public, max-age=300',
+        });
+        response.end(contents);
+      } catch (error) {
+        console.error('Не удалось отдать Mini App:', error.message);
+        sendJson(response, 500, { error: 'Mini App temporarily unavailable' });
+      }
+      return;
+    }
+
+    if (pathname.startsWith('/api/v1/')) {
+      if (typeof miniAppHandler !== 'function') {
+        sendJson(response, 404, { error: 'Not found' });
+        return;
+      }
+      if (request.method !== 'GET' && request.method !== 'POST') {
+        response.setHeader('allow', 'GET, POST');
+        sendJson(response, 405, { error: 'Method not allowed' });
+        return;
+      }
+      if (request.method === 'POST') {
+        const contentType = request.headers['content-type']?.split(';', 1)[0].trim().toLowerCase();
+        if (contentType !== 'application/json') {
+          request.resume();
+          sendJson(response, 415, { error: 'Content-Type must be application/json' });
+          return;
+        }
+        try {
+          request.body = await readJsonBody(request);
+        } catch (error) {
+          sendJson(response, error.statusCode ?? 400, { error: 'Invalid request body' });
+          return;
+        }
+      }
+      try {
+        await miniAppHandler(request, response, new URL(request.url ?? '/', 'http://localhost'));
+        if (!response.writableEnded && !response.headersSent) sendJson(response, 404, { error: 'Not found' });
+      } catch (error) {
+        console.error('Ошибка обработки Mini App API:', error.message);
+        if (!response.headersSent) sendJson(response, 500, { error: 'Request processing failed' });
+        else if (!response.writableEnded) response.destroy();
+      }
+      return;
+    }
+
     if (pathname !== WEBHOOK_PATH || request.url !== WEBHOOK_PATH) {
       sendJson(response, 404, { error: 'Not found' });
       return;

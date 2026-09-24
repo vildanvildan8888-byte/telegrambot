@@ -6,13 +6,15 @@ export const MAIN_MENU = Markup.keyboard([
   ['☎️ Помощь'],
 ]).resize();
 
-export function categoriesKeyboard(categories) {
-  return Markup.inlineKeyboard([
+export function categoriesKeyboard(categories, webAppUrl) {
+  const rows = [
     ...categories.map((category) => [
       Markup.button.callback(category.name, `category:${category.id}`),
     ]),
     [Markup.button.callback('🛒 Корзина', 'cart:show')],
-  ]);
+  ];
+  if (webAppUrl) rows.push([Markup.button.webApp('🛍 Открыть приложение', webAppUrl)]);
+  return Markup.inlineKeyboard(rows);
 }
 
 export function categoryScreenKeyboard() {

@@ -26,6 +26,51 @@ test('health endpoint returns status ok', async () => {
   });
 });
 
+test('serves the Mini App entry point and frontend assets on the existing HTTP server', async () => {
+  await withServer({ webhookHandler: async () => {}, webhookSecret: 'secret' }, async (base) => {
+    const app = await fetch(`${base}/app/`);
+    assert.equal(app.status, 200);
+    assert.match(await app.text(), /<title>Вкусный двор<\/title>/);
+    assert.match(app.headers.get('content-security-policy'), /connect-src 'self'/);
+
+    const script = await fetch(`${base}/app/app.js`);
+    assert.equal(script.status, 200);
+    assert.match(script.headers.get('content-type'), /javascript/);
+    const redirect = await fetch(`${base}/app`, { redirect: 'manual' });
+    assert.equal(redirect.status, 308);
+    assert.equal(redirect.headers.get('location'), '/app/');
+  });
+});
+
+test('forwards Mini App API requests while retaining the Telegram webhook route', async () => {
+  let requestBody;
+  await withServer({
+    webhookSecret: 'secret',
+    webhookHandler: async (request, response) => response.writeHead(200).end('webhook-ok'),
+    miniAppHandler: async (request, response, url) => {
+      requestBody = request.body;
+      response.writeHead(200, { 'content-type': 'application/json' })
+        .end(JSON.stringify({ path: url.pathname, body: request.body }));
+    },
+  }, async (base) => {
+    const apiResponse = await fetch(`${base}/api/v1/auth/telegram`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ initData: 'signed-data' }),
+    });
+    assert.equal(apiResponse.status, 200);
+    assert.deepEqual(requestBody, { initData: 'signed-data' });
+
+    const webhookResponse = await fetch(`${base}/telegram/webhook`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-telegram-bot-api-secret-token': 'secret' },
+      body: JSON.stringify({ update_id: 3 }),
+    });
+    assert.equal(webhookResponse.status, 200);
+    assert.equal(await webhookResponse.text(), 'webhook-ok');
+  });
+});
+
 test('rejects invalid webhook secrets before processing updates', async () => {
   let handled = false;
   await withServer({ webhookHandler: async () => { handled = true; }, webhookSecret: 'correct' }, async (base) => {

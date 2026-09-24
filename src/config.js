@@ -10,6 +10,7 @@ export const config = Object.freeze({
   adminId: process.env.ADMIN_ID?.trim() || '',
   webhookUrl: process.env.WEBHOOK_URL?.trim() || '',
   webhookSecret: process.env.WEBHOOK_SECRET?.trim() || '',
+  webAppSessionSecret: process.env.WEBAPP_SESSION_SECRET?.trim() || '',
   port: parsePort(process.env.PORT),
   restaurantId: process.env.RESTAURANT_ID?.trim() || 'tasty-yard-demo',
   helpContact: process.env.HELP_CONTACT?.trim() || '@your_support_username',

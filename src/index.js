@@ -5,6 +5,16 @@ import { seed } from './database/seed.js';
 import { createBot } from './bot/index.js';
 import { createHttpServer } from './http-server.js';
 import { buildWebhookUrl, resolveWebhookSecret } from './webhook.js';
+import { createMiniAppApi } from './mini-app/api.js';
+import {
+  findTelegramUserById,
+  upsertTelegramUser,
+} from './repositories/users.js';
+import {
+  getAvailableProduct,
+  getCategoryProducts,
+  getRestaurantCategories,
+} from './services/catalog-service.js';
 
 let server;
 let isShuttingDown = false;
@@ -32,9 +42,21 @@ async function main() {
   const bot = createBot();
   bot.botInfo = await bot.telegram.getMe();
   const webhookUrl = buildWebhookUrl(config.webhookUrl);
+  const miniAppUrl = new URL('/app/', config.webhookUrl).toString();
   const webhookSecret = resolveWebhookSecret(config.webhookSecret, config.botToken);
   const webhookHandler = bot.webhookCallback('/telegram/webhook', { secretToken: webhookSecret });
-  server = createHttpServer({ webhookHandler, webhookSecret });
+  const miniAppHandler = createMiniAppApi({
+    botToken: config.botToken,
+    sessionSecret: config.webAppSessionSecret,
+    restaurantId: config.restaurantId,
+    origin: new URL(config.webhookUrl).origin,
+    upsertUser: upsertTelegramUser,
+    findUserByTelegramId: findTelegramUserById,
+    listCategories: getRestaurantCategories,
+    listProducts: getCategoryProducts,
+    getProduct: getAvailableProduct,
+  });
+  server = createHttpServer({ webhookHandler, webhookSecret, miniAppHandler });
   await listen(server, config.port);
 
   try {
@@ -43,6 +65,19 @@ async function main() {
       allowed_updates: ['message', 'callback_query'],
       drop_pending_updates: false,
     });
+    if (config.webAppSessionSecret.length >= 32) {
+      try {
+        await bot.telegram.setChatMenuButton({
+          menu_button: {
+            type: 'web_app',
+            text: 'Открыть приложение',
+            web_app: { url: miniAppUrl },
+          },
+        });
+      } catch (error) {
+        console.warn('Не удалось установить кнопку Mini App в меню Telegram:', error.message);
+      }
+    }
   } catch (error) {
     await closeServer(server);
     throw error;

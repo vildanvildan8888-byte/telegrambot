@@ -15,6 +15,15 @@ export async function upsertTelegramUser(from, database = pool) {
   return result.rows[0];
 }
 
+export async function findTelegramUserById(telegramId, database = pool) {
+  const result = await database.query(
+    `SELECT telegram_id, username, first_name, last_name, phone, address
+     FROM users WHERE telegram_id = $1`,
+    [String(telegramId)],
+  );
+  return result.rows[0] ?? null;
+}
+
 export async function updateUserAddress(userId, address, database = pool) {
   await database.query(
     'UPDATE users SET address = $2, updated_at = NOW() WHERE id = $1',
