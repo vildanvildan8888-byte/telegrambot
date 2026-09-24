@@ -1,4 +1,4 @@
-import { authenticateTelegram, getCategories, getMe, getProducts, telegramApp } from './api.js';
+import { authenticateTelegram, getCategories, getMe, getProduct, getProducts, telegramApp } from './api.js';
 
 const categoriesElement = document.querySelector('#categories');
 const productsElement = document.querySelector('#products');
@@ -7,6 +7,8 @@ const greetingElement = document.querySelector('#greeting');
 
 let categories = [];
 let selectedCategoryId = null;
+let selectedProducts = [];
+let productRequestId = 0;
 
 function applyTelegramTheme() {
   const theme = telegramApp?.themeParams ?? {};
@@ -49,6 +51,7 @@ function renderCategories() {
 }
 
 function renderProducts(products) {
+  selectedProducts = products;
   productsElement.replaceChildren();
   if (!products.length) {
     setStatus('В этой категории пока нет блюд.');
@@ -56,7 +59,8 @@ function renderProducts(products) {
   }
   setStatus();
   for (const product of products) {
-    const card = document.createElement('article');
+    const card = document.createElement('button');
+    card.type = 'button';
     card.className = 'product-card';
     const name = document.createElement('h3');
     name.textContent = product.name;
@@ -66,11 +70,61 @@ function renderProducts(products) {
     price.className = 'product-price';
     price.textContent = formatPrice(product.price);
     card.append(name, description, price);
+    card.addEventListener('click', () => void openProduct(product.id));
     productsElement.append(card);
   }
 }
 
+function renderProductDetails(product) {
+  productsElement.replaceChildren();
+  const card = document.createElement('article');
+  card.className = 'product-detail';
+  const name = document.createElement('h3');
+  name.textContent = product.name;
+  const description = document.createElement('p');
+  description.textContent = product.description || 'Описание не указано.';
+  const price = document.createElement('strong');
+  price.className = 'product-price';
+  price.textContent = formatPrice(product.price);
+  const back = document.createElement('button');
+  back.type = 'button';
+  back.className = 'back-button';
+  back.textContent = '← Назад';
+  back.addEventListener('click', () => {
+    productRequestId += 1;
+    renderProducts(selectedProducts);
+  });
+  card.append(name, description, price, back);
+  productsElement.append(card);
+  setStatus();
+}
+
+async function openProduct(productId) {
+  const requestId = ++productRequestId;
+  productsElement.replaceChildren();
+  setStatus('Загружаем товар…');
+  try {
+    const result = await getProduct(productId);
+    if (requestId !== productRequestId) return;
+    renderProductDetails(result.product);
+  } catch (error) {
+    if (requestId !== productRequestId) return;
+    productsElement.replaceChildren();
+    setStatus(error.message || 'Не удалось загрузить товар.', 'error');
+    const back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'back-button';
+    back.textContent = '← Назад';
+    back.addEventListener('click', () => {
+      productRequestId += 1;
+      renderProducts(selectedProducts);
+    });
+    productsElement.append(back);
+  }
+}
+
 async function selectCategory(categoryId) {
+  productRequestId += 1;
   selectedCategoryId = categoryId;
   renderCategories();
   productsElement.replaceChildren();

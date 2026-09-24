@@ -31,11 +31,14 @@ function testDependencies() {
   const calls = [];
   const categories = [
     { id: 7, slug: 'burgers', name: '🍔 Бургеры' },
+    { id: 9, slug: 'snacks', name: '🍟 Закуски' },
     { id: 8, slug: 'drinks', name: '🥤 Напитки' },
   ];
   const products = [
     { id: 51, category_id: 7, name: 'Классический бургер', description: 'Говядина и сыр.', price: 35000 },
     { id: 52, category_id: 7, name: 'Чикен бургер', description: 'Курица и салат.', price: 32000 },
+    { id: 61, category_id: 8, name: 'Домашний лимонад', description: 'Лимон и мята.', price: 12000 },
+    { id: 71, category_id: 9, name: 'Картофель фри', description: 'Золотистый картофель.', price: 15000 },
   ];
   return {
     calls,
@@ -176,7 +179,7 @@ test('catalog categories come from the configured restaurant repository', async 
     const response = await fetch(`${base}/api/v1/categories`, { headers: { cookie } });
     const body = await response.json();
     assert.equal(response.status, 200);
-    assert.deepEqual(body.categories.map((item) => item.slug), ['burgers', 'drinks']);
+    assert.deepEqual(body.categories.map((item) => item.slug), ['burgers', 'snacks', 'drinks']);
     assert.deepEqual(calls.at(-1), ['categories', RESTAURANT_ID]);
   });
 });
@@ -210,6 +213,35 @@ test('catalog product details are limited to an available product in the configu
     assert.equal(body.product.price, 35000);
     assert.equal(Object.hasOwn(body.product, 'photo_url'), false);
     assert.deepEqual(calls.at(-1), ['product', RESTAURANT_ID, 51]);
+  });
+});
+
+test('product details endpoint resolves IDs for burgers, drinks and snacks', async () => {
+  const { api, calls } = testDependencies();
+  await withApi(api, async (base) => {
+    const login = await authenticate(base);
+    const cookie = login.headers.get('set-cookie').split(';', 1)[0];
+
+    for (const [id, name, categoryId] of [
+      [51, 'Классический бургер', '7'],
+      [52, 'Чикен бургер', '7'],
+      [61, 'Домашний лимонад', '8'],
+      [71, 'Картофель фри', '9'],
+    ]) {
+      const response = await fetch(`${base}/api/v1/products/${id}`, { headers: { cookie } });
+      const body = await response.json();
+      assert.equal(response.status, 200);
+      assert.equal(body.product.id, String(id));
+      assert.equal(body.product.categoryId, categoryId);
+      assert.equal(body.product.name, name);
+    }
+
+    assert.deepEqual(calls.filter(([type]) => type === 'product').map(([, restaurantId, id]) => [restaurantId, id]), [
+      [RESTAURANT_ID, 51],
+      [RESTAURANT_ID, 52],
+      [RESTAURANT_ID, 61],
+      [RESTAURANT_ID, 71],
+    ]);
   });
 });
 
